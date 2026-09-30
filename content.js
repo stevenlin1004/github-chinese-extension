@@ -85,22 +85,30 @@ async function smartTranslate(targetNode = document.body) {
       const normalized = normalizeText(rawText);
 
       // 檢查快取
-      if (dictCache[normalized]) {
+    // 1. 最高優先：靜態字典 DICT（防止 Fork 翻成叉子）
+      if (typeof DICT !== "undefined" && DICT[normalized]) {
+        currentNode.nodeValue = rawText.replace(normalized, DICT[normalized]);
+      } 
+      // 2. 次要優先：先前 Google 翻譯過的快取
+      else if (dictCache[normalized]) {
         if (!rawText.includes(dictCache[normalized])) {
           currentNode.nodeValue = rawText.replace(normalized, dictCache[normalized]);
         }
-      } else {
+      } 
+      // 3. 都沒命中：送去 Google 翻譯
+      else {
         pendingNodes.push({ node: currentNode, raw: rawText, key: normalized });
         wordsToFetch.add(normalized);
       }
-    }
 
     // 2. 針對 input 的 placeholder 也進行翻譯支援（例如 Go to file）
     const inputs = targetNode.querySelectorAll ? targetNode.querySelectorAll('input[placeholder], textarea[placeholder]') : [];
     inputs.forEach(input => {
       const ph = normalizeText(input.getAttribute('placeholder') || '');
       if (ph && !/^[\d\s\-_./\\:]+$/.test(ph)) {
-        if (dictCache[ph]) {
+        if (typeof DICT !== "undefined" && DICT[ph]) {
+          input.setAttribute('placeholder', DICT[ph]);
+        } else if (dictCache[ph]) {
           input.setAttribute('placeholder', dictCache[ph]);
         } else {
           wordsToFetch.add(ph);
