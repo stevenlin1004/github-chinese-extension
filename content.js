@@ -88,8 +88,8 @@ async function smartTranslate(targetNode = document.body) {
       }
 
       // 2. 針對純短詞（如 "1 branch", "0 forks"）進行局部術語替換
-      const wordCount = normalized.split(' ').length;
-      if (wordCount <= 3 && typeof DICT !== "undefined") {
+      // 2. 嚴格限定：只對「純數字 + 術語」（例如 "1 branch", "0 forks"）做局部替換
+      if (/^\d+\s+[a-zA-Z]+$/.test(normalized) && typeof DICT !== "undefined") {
         let partialReplaced = normalized;
         for (const [key, val] of Object.entries(DICT)) {
           const regex = new RegExp(`\\b${key}\\b`, "i");
@@ -99,7 +99,7 @@ async function smartTranslate(targetNode = document.body) {
         }
         if (partialReplaced !== normalized) {
           currentNode.nodeValue = rawText.replace(normalized, partialReplaced);
-          continue; // 成功替換短詞術語，結束此節點
+          continue;
         }
       }
 
@@ -134,7 +134,7 @@ async function smartTranslate(targetNode = document.body) {
     // 分批發送 Google 翻譯（每批最多 20 句，避免超過 URL 長度或觸發 429）
     if (wordsToFetch.size > 0) {
       const allWords = Array.from(wordsToFetch);
-      const BATCH_SIZE = 20;
+      const BATCH_SIZE = 15;
 
       for (let i = 0; i < allWords.length; i += BATCH_SIZE) {
         const batch = allWords.slice(i, i + BATCH_SIZE);
@@ -167,7 +167,7 @@ async function smartTranslate(targetNode = document.body) {
           });
 
           await saveStorageCache(dictCache);
-        }
+        }await new Promise((r) => setTimeout(r, 200));
       }
     }
   } finally {
