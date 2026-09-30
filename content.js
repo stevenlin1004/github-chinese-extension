@@ -131,10 +131,10 @@ async function smartTranslate(targetNode = document.body) {
       }
     });
 
-    // 分批發送 Google 翻譯（每批最多 20 句，避免超過 URL 長度或觸發 429）
+// 3. 分批發送 Google 翻譯（每批 12 句，避免超過長度）
     if (wordsToFetch.size > 0) {
       const allWords = Array.from(wordsToFetch);
-      const BATCH_SIZE = 15;
+      const BATCH_SIZE = 12;
 
       for (let i = 0; i < allWords.length; i += BATCH_SIZE) {
         const batch = allWords.slice(i, i + BATCH_SIZE);
@@ -143,7 +143,12 @@ async function smartTranslate(targetNode = document.body) {
 
         const translatedResponse = await fetchGoogleTranslate(combinedText);
         if (translatedResponse) {
-          const translatedArray = translatedResponse.split(delimiter);
+          // 調用 dict.js 的繁體轉換
+          const traditionalText = typeof convertToTraditional === "function"
+            ? convertToTraditional(translatedResponse)
+            : translatedResponse;
+
+          const translatedArray = traditionalText.split(delimiter);
 
           batch.forEach((word, index) => {
             if (translatedArray[index]) {
@@ -166,8 +171,12 @@ async function smartTranslate(targetNode = document.body) {
             }
           });
 
+          // 當前批次立即存進快取資料庫（不再整組丟棄）
           await saveStorageCache(dictCache);
-        }await new Promise((r) => setTimeout(r, 200));
+        }
+
+        // 批次間微休眠 150ms
+        await new Promise((r) => setTimeout(r, 150));
       }
     }
   } finally {
