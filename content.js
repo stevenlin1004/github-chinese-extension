@@ -19,16 +19,25 @@ function saveStorageCache(cache) {
 // 向 background 發送翻譯請求
 function fetchGoogleTranslate(text) {
   return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: "TRANSLATE", text: text }, (response) => {
-      if (response && response.success) {
-        resolve(response.translation);
-      } else {
-        resolve(null);
-      }
-    });
+    try {
+      chrome.runtime.sendMessage({ type: "TRANSLATE", text: text }, (response) => {
+        // 檢查是否有 runtime 錯誤（例如 background 剛好在休眠喚醒中）
+        if (chrome.runtime.lastError) {
+          console.warn("[GitHub 中文] 通訊異常:", chrome.runtime.lastError.message);
+          resolve(null);
+          return;
+        }
+        if (response && response.success) {
+          resolve(response.translation);
+        } else {
+          resolve(null);
+        }
+      });
+    } catch (e) {
+      resolve(null);
+    }
   });
 }
-
 // 清理與正規化字串（移除換行與多餘空格）
 function normalizeText(str) {
   return str.replace(/\s+/g, ' ').trim();

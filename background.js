@@ -1,4 +1,9 @@
-// 監聽來自 content.js 的翻譯請求（背景 Service Worker 不受網頁 CSP 限制）
+// 安裝或重載時主動喚醒
+chrome.runtime.onInstalled.addListener(() => {
+  console.log("[GitHub 中文] Background Service Worker 已就緒");
+});
+
+// 監聽來自 content.js 的翻譯請求
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === "TRANSLATE") {
     const text = request.text;
@@ -6,7 +11,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     fetch(url)
       .then((res) => {
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
         return res.json();
       })
       .then((data) => {
@@ -19,9 +24,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       })
       .catch((err) => {
         console.error("背景翻譯失敗:", err);
-        sendResponse({ success: false, error: err.toString() });
+        sendResponse({ success: false, error: err.message });
       });
 
-    return true; // 保持非同步訊息通道開啟
+    return true; // 保持非同步訊息通道開啟（必備）
   }
 });
