@@ -75,7 +75,7 @@ async function smartTranslate(targetNode = document.body) {
       }
     );
 
-    const pendingNodes = [];
+const pendingNodes = [];
     const wordsToFetch = new Set();
 
     let currentNode;
@@ -83,19 +83,39 @@ async function smartTranslate(targetNode = document.body) {
       const rawText = currentNode.nodeValue;
       const normalized = normalizeText(rawText);
 
-      // (1) 最高優先：靜態字典 DICT (防止 Fork 翻成叉子)
+      // (1) 最高優先：靜態字典完全比對
       if (typeof DICT !== "undefined" && DICT[normalized]) {
         if (!rawText.includes(DICT[normalized])) {
           currentNode.nodeValue = rawText.replace(normalized, DICT[normalized]);
         }
+        continue;
       }
-      // (2) 次要優先：先前 Google 翻譯過的本機快取
-      else if (dictCache[normalized]) {
+
+      // (2) 處理「數字 + 術語」（例如 1 branch -> 1 分支、0 forks -> 0 派生分支）
+      let partialReplaced = rawText;
+      if (typeof DICT !== "undefined") {
+        for (const [key, val] of Object.entries(DICT)) {
+          // 只比對單字邊界，避免誤傷長單字
+          const regex = new RegExp(`\\b${key}\\b`, "i");
+          if (regex.test(partialReplaced)) {
+            partialReplaced = partialReplaced.replace(regex, val);
+          }
+        }
+      }
+
+      // 如果有術語被替換成功，直接採用，不再送 Google 翻譯
+      if (partialReplaced !== rawText) {
+        currentNode.nodeValue = partialReplaced;
+        continue;
+      }
+
+      // (3) 次要優先：先前 Google 翻譯過的本機快取
+      if (dictCache[normalized]) {
         if (!rawText.includes(dictCache[normalized])) {
           currentNode.nodeValue = rawText.replace(normalized, dictCache[normalized]);
         }
-      }
-      // (3) 都沒命中：排入 Google 翻譯隊列
+      } 
+      // (4) 都沒命中：排入 Google 翻譯隊列
       else {
         pendingNodes.push({ node: currentNode, raw: rawText, key: normalized });
         wordsToFetch.add(normalized);
@@ -166,7 +186,7 @@ function scheduleTranslate(node = document.body) {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     smartTranslate(node);
-  }, 120);
+  }, 300);
 }
 
 // 初次載入與單頁導航監聽
