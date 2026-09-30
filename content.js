@@ -18,15 +18,15 @@ function saveStorageCache(cache) {
 
 // 單一字串或批次呼叫 Google 翻譯
 async function fetchGoogleTranslate(text) {
-  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-TW&dt=t&q=${encodeURIComponent(text)}`;
-  try {
-    const res = await fetch(url);
-    const data = await res.json();
-    return data[0].map(item => item[0]).join('');
-  } catch (err) {
-    console.error("翻譯請求失敗:", err);
-    return null;
-  }
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: "TRANSLATE", text: text }, (response) => {
+      if (response && response.success) {
+        resolve(response.translation);
+      } else {
+        resolve(null);
+      }
+    });
+  });
 }
 
 let isTranslating = false;
