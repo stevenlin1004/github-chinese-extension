@@ -1,4 +1,5 @@
-// 封裝 chrome.storage 的讀取
+// content.js - 智慧階層翻譯核心
+
 function getStorageCache() {
   return new Promise((resolve) => {
     chrome.storage.local.get(["dictCache"], (result) => {
@@ -7,7 +8,6 @@ function getStorageCache() {
   });
 }
 
-// 封裝 chrome.storage 的寫入
 function saveStorageCache(cache) {
   return new Promise((resolve) => {
     chrome.storage.local.set({ dictCache: cache }, () => {
@@ -16,13 +16,11 @@ function saveStorageCache(cache) {
   });
 }
 
-// 向 background 發送翻譯請求
 function fetchGoogleTranslate(text) {
   return new Promise((resolve) => {
     try {
       chrome.runtime.sendMessage({ type: "TRANSLATE", text: text }, (response) => {
         if (chrome.runtime.lastError) {
-          console.warn("[GitHub 中文] 通訊異常:", chrome.runtime.lastError.message);
           resolve(null);
           return;
         }
@@ -38,7 +36,6 @@ function fetchGoogleTranslate(text) {
   });
 }
 
-// 清理與正規化字串（移除換行與多餘空格）
 function normalizeText(str) {
   return str.replace(/\s+/g, ' ').trim();
 }
@@ -56,14 +53,13 @@ async function smartTranslate(targetNode = document.body) {
   try {
     const dictCache = await getStorageCache();
 
-    // 1. 遍歷文字節點 (Text Nodes)
     const walker = document.createTreeWalker(
       targetNode,
       NodeFilter.SHOW_TEXT,
       {
         acceptNode: function (node) {
           const parentTag = node.parentElement ? node.parentElement.tagName.toLowerCase() : '';
-          if (['script', 'style', 'code', 'pre'].includes(parentTag)) {
+          if (['script', 'style', 'code', 'pre', 'kbd'].includes(parentTag)) {
             return NodeFilter.FILTER_REJECT;
           }
           const text = normalizeText(node.nodeValue);
@@ -75,7 +71,7 @@ async function smartTranslate(targetNode = document.body) {
       }
     );
 
-const pendingNodes = [];
+    const pendingNodes = [];
     const wordsToFetch = new Set();
 
     let currentNode;
@@ -83,7 +79,7 @@ const pendingNodes = [];
       const rawText = currentNode.nodeValue;
       const normalized = normalizeText(rawText);
 
-      // (1) 最高優先：靜態字典完全比對
+      // 1. 本地靜態字典完全比對 (優先度最高)
       if (typeof DICT !== "undefined" && DICT[normalized]) {
         if (!rawText.includes(DICT[normalized])) {
           currentNode.nodeValue = rawText.replace(normalized, DICT[normalized]);
@@ -91,38 +87,36 @@ const pendingNodes = [];
         continue;
       }
 
-      // (2) 處理「數字 + 術語」（例如 1 branch -> 1 分支、0 forks -> 0 派生分支）
-      let partialReplaced = rawText;
-      if (typeof DICT !== "undefined") {
+      // 2. 針對純短詞（如 "1 branch", "0 forks"）進行局部術語替換
+      const wordCount = normalized.split(' ').length;
+      if (wordCount <= 3 && typeof DICT !== "undefined") {
+        let partialReplaced = normalized;
         for (const [key, val] of Object.entries(DICT)) {
-          // 只比對單字邊界，避免誤傷長單字
           const regex = new RegExp(`\\b${key}\\b`, "i");
           if (regex.test(partialReplaced)) {
             partialReplaced = partialReplaced.replace(regex, val);
           }
         }
+        if (partialReplaced !== normalized) {
+          currentNode.nodeValue = rawText.replace(normalized, partialReplaced);
+          continue; // 成功替換短詞術語，結束此節點
+        }
       }
 
-      // 如果有術語被替換成功，直接採用，不再送 Google 翻譯
-      if (partialReplaced !== rawText) {
-        currentNode.nodeValue = partialReplaced;
-        continue;
-      }
-
-      // (3) 次要優先：先前 Google 翻譯過的本機快取
+      // 3. 快取比對 (如果整句已經翻譯過)
       if (dictCache[normalized]) {
         if (!rawText.includes(dictCache[normalized])) {
           currentNode.nodeValue = rawText.replace(normalized, dictCache[normalized]);
         }
-      } 
-      // (4) 都沒命中：排入 Google 翻譯隊列
-      else {
-        pendingNodes.push({ node: currentNode, raw: rawText, key: normalized });
-        wordsToFetch.add(normalized);
+        continue;
       }
+
+      // 4. 若都不是，則為「新單字」或「完整長句」，整句排入 Google 翻譯
+      pendingNodes.push({ node: currentNode, raw: rawText, key: normalized });
+      wordsToFetch.add(normalized);
     }
 
-    // 2. 針對 input 的 placeholder 進行翻譯（例如 Go to file）
+    // 支援 input 與 textarea placeholder
     const inputs = targetNode.querySelectorAll ? targetNode.querySelectorAll('input[placeholder], textarea[placeholder]') : [];
     inputs.forEach((input) => {
       const ph = normalizeText(input.getAttribute('placeholder') || '');
@@ -137,38 +131,43 @@ const pendingNodes = [];
       }
     });
 
-    // 3. 批次發送 Google 翻譯 API 請求
+    // 分批發送 Google 翻譯（每批最多 20 句，避免超過 URL 長度或觸發 429）
     if (wordsToFetch.size > 0) {
-      const newWordsArray = Array.from(wordsToFetch);
-      const delimiter = "\n---\n";
-      const combinedText = newWordsArray.join(delimiter);
+      const allWords = Array.from(wordsToFetch);
+      const BATCH_SIZE = 20;
 
-      const translatedResponse = await fetchGoogleTranslate(combinedText);
-      if (translatedResponse) {
-        const translatedArray = translatedResponse.split(delimiter);
+      for (let i = 0; i < allWords.length; i += BATCH_SIZE) {
+        const batch = allWords.slice(i, i + BATCH_SIZE);
+        const delimiter = "\n---\n";
+        const combinedText = batch.join(delimiter);
 
-        newWordsArray.forEach((word, index) => {
-          if (translatedArray[index]) {
-            dictCache[word] = translatedArray[index].trim();
-          }
-        });
+        const translatedResponse = await fetchGoogleTranslate(combinedText);
+        if (translatedResponse) {
+          const translatedArray = translatedResponse.split(delimiter);
 
-        // 回填文字節點
-        pendingNodes.forEach(({ node, raw, key }) => {
-          if (dictCache[key]) {
-            node.nodeValue = raw.replace(key, dictCache[key]);
-          }
-        });
+          batch.forEach((word, index) => {
+            if (translatedArray[index]) {
+              dictCache[word] = translatedArray[index].trim();
+            }
+          });
 
-        // 回填 placeholder
-        inputs.forEach((input) => {
-          const ph = normalizeText(input.getAttribute('placeholder') || '');
-          if (dictCache[ph]) {
-            input.setAttribute('placeholder', dictCache[ph]);
-          }
-        });
+          // 即時回填文字節點
+          pendingNodes.forEach(({ node, raw, key }) => {
+            if (dictCache[key]) {
+              node.nodeValue = raw.replace(key, dictCache[key]);
+            }
+          });
 
-        await saveStorageCache(dictCache);
+          // 即時回填 placeholder
+          inputs.forEach((input) => {
+            const ph = normalizeText(input.getAttribute('placeholder') || '');
+            if (dictCache[ph]) {
+              input.setAttribute('placeholder', dictCache[ph]);
+            }
+          });
+
+          await saveStorageCache(dictCache);
+        }
       }
     }
   } finally {
@@ -186,17 +185,15 @@ function scheduleTranslate(node = document.body) {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     smartTranslate(node);
-  }, 300);
+  }, 250);
 }
 
-// 初次載入與單頁導航監聽
 document.addEventListener("DOMContentLoaded", () => scheduleTranslate());
 scheduleTranslate();
 document.addEventListener("turbo:load", () => scheduleTranslate());
 document.addEventListener("turbo:render", () => scheduleTranslate());
 document.addEventListener("pjax:end", () => scheduleTranslate());
 
-// DOM 動態渲染監聽
 const observer = new MutationObserver((mutations) => {
   let hasNew = false;
   for (const m of mutations) {
