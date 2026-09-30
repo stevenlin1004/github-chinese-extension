@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "GitHub 智慧快取中文翻譯",
+  "version": "1.0.0",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://translate.googleapis.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ]
+}
